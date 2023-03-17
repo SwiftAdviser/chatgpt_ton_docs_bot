@@ -2,13 +2,13 @@ import config
 
 import tiktoken
 import openai
+import pinecone
 openai.api_key = config.openai_api_key
-
-
 CHAT_MODES = config.chat_modes
 
+
 OPENAI_COMPLETION_OPTIONS = {
-    "temperature": 0.7,
+    "temperature": 0.6,
     "max_tokens": 1000,
     "top_p": 1,
     "frequency_penalty": 0,
@@ -28,26 +28,16 @@ class ChatGPT:
         answer = None
         while answer is None:
             try:
-                if self.use_chatgpt_api:
-                    messages = self._generate_prompt_messages_for_chatgpt_api(message, dialog_messages, chat_mode)
-                    r = await openai.ChatCompletion.acreate(
-                        model="gpt-3.5-turbo",
-                        messages=messages,
-                        **OPENAI_COMPLETION_OPTIONS
-                    )
-                    answer = r.choices[0].message["content"]
-                else:
-                    prompt = self._generate_prompt(message, dialog_messages, chat_mode)
-                    r = await openai.Completion.acreate(
-                        engine="text-davinci-003",
-                        prompt=prompt,
-                        **OPENAI_COMPLETION_OPTIONS
-                    )
-                    answer = r.choices[0].text
+                messages = self._generate_answer_from_index(message, chat_mode)
 
-                answer = self._postprocess_answer(answer)
-                n_used_tokens = r.usage.total_tokens
-                
+                res = openai.ChatCompletion.acreate(
+                    model="gpt-3.5-turbo",
+                    messages=messages,
+                    stream=True,
+                )
+                answer = res['choices'][0]['message']['content']
+                n_used_tokens = self._count_tokens_for_chatgpt(message, answer, model="gpt-3.5-turbo")
+
             except openai.error.InvalidRequestError as e:  # too many tokens
                 if len(dialog_messages) == 0:
                     raise ValueError("Dialog messages is reduced to zero, but still has too many tokens to make completion") from e
@@ -68,7 +58,7 @@ class ChatGPT:
         while answer is None:
             try:
                 if self.use_chatgpt_api:
-                    messages = self._generate_prompt_messages_for_chatgpt_api(message, dialog_messages, chat_mode)
+                    messages = self._generate_prompt_from_index(message, chat_mode)
                     r_gen = await openai.ChatCompletion.acreate(
                         model="gpt-3.5-turbo",
                         messages=messages,
@@ -84,24 +74,9 @@ class ChatGPT:
                             yield "not_finished", answer
 
                     n_used_tokens = self._count_tokens_for_chatgpt(messages, answer, model="gpt-3.5-turbo")
-                else:
-                    prompt = self._generate_prompt(message, dialog_messages, chat_mode)
-                    r_gen = await openai.Completion.acreate(
-                        engine="text-davinci-003",
-                        prompt=prompt,
-                        stream=True,
-                        **OPENAI_COMPLETION_OPTIONS
-                    )
-                    
-                    answer = ""
-                    async for r_item in r_gen:
-                        answer += r_item.choices[0].text
-                        yield "not_finished", answer
-
-                    n_used_tokens = self._count_tokens_for_gpt(prompt, answer, model="text-davinci-003")
 
                 answer = self._postprocess_answer(answer)
-                
+
             except openai.error.InvalidRequestError as e:  # too many tokens
                 if len(dialog_messages) == 0:
                     raise ValueError("Dialog messages is reduced to zero, but still has too many tokens to make completion") from e
@@ -129,6 +104,51 @@ class ChatGPT:
         prompt += "ChatGPT: "
 
         return prompt
+
+    def _generate_prompt_from_index(self, message, chat_mode):
+
+
+        # system message to 'prime' the model
+        primer = CHAT_MODES[chat_mode]["prompt_start"]
+
+        # pinecone index
+        index_name = config.pinecone_index_name
+        embed_model = 'text-embedding-ada-002'
+
+        # initialize connection to pinecone
+        pinecone.init(
+            api_key=config.pinecone_api_key,  # app.pinecone.io (console)
+            environment=config.pinecone_env  # next to API key in console
+        )
+        # connect to index
+        index = pinecone.GRPCIndex(index_name)
+
+        # query = "how do I use the FunC in TON Blockchain?"
+        query = message
+
+        # transform text to vector
+        res = openai.Embedding.create(
+            input=[query],
+            engine=embed_model
+        )
+
+        # retrieve from Pinecone
+        xq = res['data'][0]['embedding']
+
+        # get relevant contexts (including the questions)
+        res = index.query(xq, top_k=5, include_metadata=True)
+
+        # get list of retrieved text
+        contexts = [(item['metadata']['text'] + "\nSource: " + item['metadata']['url']) for item in res['matches']]
+
+        augmented_query = "\n\n---\n\n".join(contexts) + "\n\n-----\n\n" + query
+
+        messages = [
+            {"role": "system", "content": primer},
+            {"role": "user", "content": augmented_query}
+        ]
+
+        return messages
 
     def _generate_prompt_messages_for_chatgpt_api(self, message, dialog_messages, chat_mode):
         prompt = CHAT_MODES[chat_mode]["prompt_start"]

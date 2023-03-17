@@ -1,5 +1,9 @@
 telegram_token: ""
 openai_api_key: ""
+pinecone_api_key: "" # example: https://www.youtube.com/watch?v=tBJ-CTKG2dM and notebook https://github.com/pinecone-io/examples/blob/master/generation/gpt4-retrieval-augmentation/gpt-4-langchain-docs.ipynb
+pinecone_env: "" # https://pinecone.io/
+pinecone_index_name: ""
+
 use_chatgpt_api: true
 allowed_telegram_usernames: []  # if empty, the bot is available to anyone. pass a username string to allow it and/or user ids as integers
 new_dialog_timeout: 600  # new dialog starts after timeout (in seconds)
