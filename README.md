@@ -1,7 +1,7 @@
 # TON Documentation + ChatGPT Telegram Bot
 
 <div align="center">
-<img src="https://ton.org/docs/img/ton_logo_light_background.svg" align="center" style="width: 100%" />
+<img src="https://ton.org/docs/img/ton_logo_dark_background.svg" align="center" style="width: 30%" />
 </div>
 
 <br>
