@@ -1,5 +1,6 @@
 import config
-
+import requests
+import re
 import tiktoken
 import openai
 import pinecone
@@ -8,10 +9,10 @@ CHAT_MODES = config.chat_modes
 
 
 OPENAI_COMPLETION_OPTIONS = {
-    "temperature": 0.6,
+    "temperature": 0.0,
     "max_tokens": 1000,
     "top_p": 1,
-    "frequency_penalty": 0,
+    "frequency_penalty": 0.3,
     "presence_penalty": 0
 }
 
@@ -26,17 +27,41 @@ class ChatGPT:
 
         n_dialog_messages_before = len(dialog_messages)
         answer = None
+        attempts = 0
         while answer is None:
             try:
-                messages = self._generate_answer_from_index(message, chat_mode)
+                messages = self._generate_prompt_from_index(message, chat_mode)
 
-                res = openai.ChatCompletion.acreate(
+                res = await openai.ChatCompletion.acreate(
                     model="gpt-3.5-turbo",
                     messages=messages,
-                    stream=True,
+                    **OPENAI_COMPLETION_OPTIONS
                 )
+
                 answer = res['choices'][0]['message']['content']
-                n_used_tokens = self._count_tokens_for_chatgpt(message, answer, model="gpt-3.5-turbo")
+                n_used_tokens = self._count_tokens_for_chatgpt(messages, answer, model="gpt-3.5-turbo")
+
+                answer = self._postprocess_answer(answer)
+
+                # check for answer truth
+                if answer.find('https://') > 0:
+                    print('Sources found in answer:')
+                    print(answer)
+                    urls = re.findall(r'\b((?:https?://)?(?:(?:www\.)?(?:[\da-z\.-]+)\.(?:[a-z]{2,6})|(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)|(?:(?:[0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})|:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(?::[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(?:ffff(?::0{1,4}){0,1}:){0,1}(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])|(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])))(?::[0-9]{1,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])?(?:/[\w\.-]*)*/?)\b', answer)
+
+                    for url in urls:
+                        res = requests.get(url)
+                        if res.status_code != 200:
+                            print(f"{res.status_code} for URL in answer: '{url}'")
+                            answer = None
+                            break
+
+                # break infinity loop for 404 answers
+                if answer is None:
+                    attempts += 1
+
+                if attempts > 3:
+                    raise ValueError("Sorry, Docster AI provides too many fake links for this request! 🤪 Please, share info with @SwiftAdviser")
 
             except openai.error.InvalidRequestError as e:  # too many tokens
                 if len(dialog_messages) == 0:
@@ -162,6 +187,7 @@ class ChatGPT:
         return messages
 
     def _postprocess_answer(self, answer):
+
         answer = answer.strip()
         return answer
 
