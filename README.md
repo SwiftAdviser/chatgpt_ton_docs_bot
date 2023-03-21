@@ -7,7 +7,7 @@
 <br>
 
 
-Docster AI is a bot created to answer tech-related questions about TON Blockchain directly in Telegram (@docster_bot)
+Docster AI is a bot created to answer tech-related questions about TON Blockchain directly in Telegram ([@docster_bot](https://t.me/docster_bot))
 
 
 ## Vision
