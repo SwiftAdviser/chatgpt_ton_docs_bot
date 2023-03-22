@@ -1,12 +1,24 @@
 # TON Documentation + ChatGPT Telegram Bot
 
 <div align="center">
-<img src="https://ton.org/docs/img/ton_logo_light_background.svg" align="center" style="width: 100%" />
+<img src="https://ton.org/docs/img/ton_logo_dark_background.svg" align="center" style="width: 30%" />
 </div>
 
 <br>
 
-_TODO_
+
+Docster AI is a bot created to answer tech-related questions about TON Blockchain directly in Telegram ([@docster_bot](https://t.me/docster_bot))
+
+
+## Vision
+
+- [x] ChatGPT bot
+- [x] TON Documentation added to knowledge index
+- [x] TON Answers added to knowledge index
+- [ ] TON Ecosystem GitHub repositories added to knowledge index
+- [ ] Add more FunC examples to index to help with FunC errors
+- [ ] Add bot to [TON Dev Chat](https://t.me/tondev_eng) and add `/ask@docster_bot` command there
+
 
 ## Bot commands
 - `/retry` – Regenerate last bot answer
