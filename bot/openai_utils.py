@@ -4,12 +4,12 @@ import re
 import tiktoken
 import openai
 import pinecone
+
 openai.api_key = config.openai_api_key
 CHAT_MODES = config.chat_modes
 
-
 OPENAI_COMPLETION_OPTIONS = {
-    "temperature": 0.0,
+    "temperature": 0.15,
     "max_tokens": 1000,
     "top_p": 1,
     "frequency_penalty": 0.3,
@@ -20,7 +20,7 @@ OPENAI_COMPLETION_OPTIONS = {
 class ChatGPT:
     def __init__(self, use_chatgpt_api=True):
         self.use_chatgpt_api = use_chatgpt_api
-    
+
     async def send_message(self, message, dialog_messages=[], chat_mode="assistant"):
         if chat_mode not in CHAT_MODES.keys():
             raise ValueError(f"Chat mode {chat_mode} is not supported")
@@ -28,9 +28,13 @@ class ChatGPT:
         n_dialog_messages_before = len(dialog_messages)
         answer = None
         attempts = 0
+
+        print('1. Prepare a msg with index:')
+        messages = self._generate_prompt_from_index(message, dialog_messages, chat_mode)
+
         while answer is None:
             try:
-                messages = self._generate_prompt_from_index(message, chat_mode)
+                print('2. Send request to gpt')
 
                 res = await openai.ChatCompletion.acreate(
                     model="gpt-3.5-turbo",
@@ -38,16 +42,19 @@ class ChatGPT:
                     **OPENAI_COMPLETION_OPTIONS
                 )
 
-                answer = res['choices'][0]['message']['content']
-                n_used_tokens = self._count_tokens_for_chatgpt(messages, answer, model="gpt-3.5-turbo")
+                print('3. Validate answer')
 
-                answer = self._postprocess_answer(answer)
+                answer = res['choices'][0]['message']['content']
+                #n_used_tokens = self._count_tokens_for_chatgpt(messages, answer, model="gpt-3.5-turbo")
+                n_used_tokens = 0
 
                 # check for answer truth
                 if answer.find('https://') > 0:
                     print('Sources found in answer:')
                     print(answer)
-                    urls = re.findall(r'\b((?:https?://)?(?:(?:www\.)?(?:[\da-z\.-]+)\.(?:[a-z]{2,6})|(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)|(?:(?:[0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})|:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(?::[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(?:ffff(?::0{1,4}){0,1}:){0,1}(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])|(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])))(?::[0-9]{1,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])?(?:/[\w\.-]*)*/?)\b', answer)
+                    urls = re.findall(
+                        r'\b(https?://?(?:(?:www\.)?(?:[\da-z\.-]+)\.(?:[a-z]{2,6})|(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)|(?:(?:[0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})|:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(?::[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(?:ffff(?::0{1,4}){0,1}:){0,1}(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])|(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])))(?::[0-9]{1,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])?(?:/[\w\.-]*)*/?)\b',
+                        answer)
 
                     for url in urls:
                         res = requests.get(url)
@@ -56,16 +63,23 @@ class ChatGPT:
                             answer = None
                             break
 
+                print('4. Process answer')
+
                 # break infinity loop for 404 answers
                 if answer is None:
                     attempts += 1
+                else:
+                    answer = self._postprocess_answer(answer)
+
 
                 if attempts > 3:
-                    raise ValueError("Sorry, Docster AI provides too many fake links for this request! 🤪 Please, share info with @SwiftAdviser")
+                    raise ValueError(
+                        "Sorry, Docster AI provides too many fake links for this request! 🤪 Please, share info with @SwiftAdviser")
 
             except openai.error.InvalidRequestError as e:  # too many tokens
                 if len(dialog_messages) == 0:
-                    raise ValueError("Dialog messages is reduced to zero, but still has too many tokens to make completion") from e
+                    raise ValueError(
+                        "Dialog messages is reduced to zero, but still has too many tokens to make completion") from e
 
                 # forget first message in dialog_messages
                 dialog_messages = dialog_messages[1:]
@@ -83,10 +97,10 @@ class ChatGPT:
         while answer is None:
             try:
                 if self.use_chatgpt_api:
-                    messages = self._generate_prompt_from_index(message, chat_mode)
+                    # messages = self._generate_prompt_from_index(message, chat_mode)
                     r_gen = await openai.ChatCompletion.acreate(
                         model="gpt-3.5-turbo",
-                        messages=messages,
+                        messages=[],
                         stream=True,
                         **OPENAI_COMPLETION_OPTIONS
                     )
@@ -104,7 +118,8 @@ class ChatGPT:
 
             except openai.error.InvalidRequestError as e:  # too many tokens
                 if len(dialog_messages) == 0:
-                    raise ValueError("Dialog messages is reduced to zero, but still has too many tokens to make completion") from e
+                    raise ValueError(
+                        "Dialog messages is reduced to zero, but still has too many tokens to make completion") from e
 
                 # forget first message in dialog_messages
                 dialog_messages = dialog_messages[1:]
@@ -130,11 +145,7 @@ class ChatGPT:
 
         return prompt
 
-    def _generate_prompt_from_index(self, message, chat_mode):
-
-
-        # system message to 'prime' the model
-        primer = CHAT_MODES[chat_mode]["prompt_start"]
+    def _generate_prompt_from_index(self, message, dialog_messages, chat_mode):
 
         # pinecone index
         index_name = config.pinecone_index_name
@@ -168,16 +179,13 @@ class ChatGPT:
 
         augmented_query = "\n\n---\n\n".join(contexts) + "\n\n-----\n\n" + query
 
-        messages = [
-            {"role": "system", "content": primer},
-            {"role": "user", "content": augmented_query}
-        ]
+        messages = self._generate_prompt_messages_for_chatgpt_api(augmented_query, dialog_messages, chat_mode)
 
         return messages
 
     def _generate_prompt_messages_for_chatgpt_api(self, message, dialog_messages, chat_mode):
         prompt = CHAT_MODES[chat_mode]["prompt_start"]
-        
+
         messages = [{"role": "system", "content": prompt}]
         for dialog_message in dialog_messages:
             messages.append({"role": "user", "content": dialog_message["user"]})
@@ -192,20 +200,20 @@ class ChatGPT:
         return answer
 
     def _count_tokens_for_chatgpt(self, prompt_messages, answer, model="gpt-3.5-turbo"):
-        prompt_messages += [{"role": "assistant", "content": answer}]        
+        prompt_messages += [{"role": "assistant", "content": answer}]
 
         encoding = tiktoken.encoding_for_model(model)
         n_tokens = 0
         for message in prompt_messages:
             n_tokens += 4  # every message follows "<im_start>{role/name}\n{content}<im_end>\n"
-            for key, value in message.items():            
+            for key, value in message.items():
                 if key == "role":
                     n_tokens += 1
                 elif key == "content":
                     n_tokens += len(encoding.encode(value))
                 else:
                     raise ValueError(f"Unknown key in message: {key}")
-                    
+
         n_tokens -= 1  # remove 1 "<im_end>" token          
         return n_tokens
 
